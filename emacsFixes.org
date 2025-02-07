@@ -1,0 +1,416 @@
+** Meow additional commands
+#+begin_src emacs-lisp :tangle yes
+(defun delete-line (&optional arg)
+  (interactive "P")
+  (delete-region (point)
+	       (progn
+		 (if arg
+		     (forward-visible-line (prefix-numeric-value arg))
+		   (if (eobp)
+		       (signal 'end-of-buffer nil))
+		   (let ((end
+			  (save-excursion
+			    (end-of-visible-line) (point))))
+		     (if (or (save-excursion
+			       ;; If trailing whitespace is visible,
+			       ;; don't treat it as nothing.
+			       (unless show-trailing-whitespace
+				 (skip-chars-forward " \t" end))
+			       (= (point) end))
+			     (and delete-whole-line (bolp)))
+			 (forward-visible-line 1)
+		       (goto-char end))))
+		 (point))))
+
+
+(defvar delete-whole-line nil)
+(defun delete-whole-line (&optional arg)
+  (interactive "p")
+  (or arg (setq arg 1))
+  (if (and (> arg 0) (eobp) (save-excursion (forward-visible-line 0) (eobp)))
+      (signal 'end-of-buffer nil))
+  (if (and (< arg 0) (bobp) (save-excursion (end-of-visible-line) (bobp)))
+      (signal 'beginning-of-buffer nil))
+  (let (;; The beginning of both regions to kill
+        (regions-begin (point-marker))
+        (region1-end (cond ((zerop arg)
+                            (prog1 (save-excursion
+                                     (forward-visible-line 0)
+                                     (point-marker))
+                              (end-of-visible-line)))
+	                   ((< arg 0)
+	                    (prog1 (save-excursion
+                                     (end-of-visible-line)
+                                     (point-marker))
+                              (forward-visible-line (1+ arg))
+	                      (unless (bobp) (backward-char))))
+	                   (t
+	                    (prog1 (save-excursion
+                                     (forward-visible-line 0)
+                                     (point-marker))
+	                      (forward-visible-line arg))))))
+    (let ((kill-read-only-ok (or kill-read-only-ok
+                                 (/= regions-begin (point)))))
+      (delete-region (marker-position regions-begin)
+                   (marker-position region1-end)))
+    (delete-region (marker-position regions-begin)
+                 (point))
+    (set-marker regions-begin nil)
+    (set-marker region1-end nil)))
+
+
+
+(defun meow-delete-my ()
+  (interactive)
+  (let ((select-enable-clipboard meow-use-clipboard))
+    (when (meow--allow-modify-p)
+          (if (region-active-p)
+             (cond
+              ((equal '(expand . join) (meow--selection-type))
+               (delete-indentation nil (region-beginning) (region-end)))
+              (t
+               (meow--prepare-region-for-kill)
+               (meow--execute-kbd-macro meow--kbd-delete-region)))
+          (delete-line)))))
+#+end_src
+** Meow movements
+#+begin_src emacs-lisp :tangle yes
+(defun meow-setup ()
+  (setq meow-cheatsheet-layout meow-cheatsheet-layout-colemak)
+  (meow-motion-overwrite-define-key
+   ;; Use e to move up, n to move down.
+   ;; Since special modes usually use n to move down, we only overwrite e here.
+   '("u" . meow-prev)
+   '("e" . meow-next)
+   '("y" . meow-save)
+   '("z" . meow-visit)
+   '("<escape>" . ignore))
+  (meow-leader-define-key
+   '("?" . meow-cheatsheet)
+   ;; To execute the originally e in MOTION state, use SPC e.
+   '("e" . "H-e")
+   '("1" . meow-digit-argument)
+   '("2" . meow-digit-argument)
+   '("3" . meow-digit-argument)
+   '("4" . meow-digit-argument)
+   '("5" . meow-digit-argument)
+   '("6" . meow-digit-argument)
+   '("7" . meow-digit-argument)
+   '("8" . meow-digit-argument)
+   '("9" . meow-digit-argument)
+   '("0" . meow-digit-argument))
+  (meow-normal-define-key
+   '("0" . meow-expand-0)
+   '("1" . meow-expand-1)
+   '("2" . meow-expand-2)
+   '("3" . meow-expand-3)
+   '("4" . meow-expand-4)
+   '("5" . meow-expand-5)
+   '("6" . meow-expand-6)
+   '("7" . meow-expand-7)
+   '("8" . meow-expand-8)
+   '("9" . meow-expand-9)
+   '("-" . negative-argument)
+   '("x" . meow-reverse)
+   '("," . meow-inner-of-thing)
+   '("." . meow-bounds-of-thing)
+   '("[" . meow-beginning-of-thing)
+   '("]" . meow-end-of-thing)
+   '("z" . meow-visit)
+   '("a" . meow-append)
+   '("A" . meow-open-below)
+   '("b" . meow-back-word)
+   '("B" . meow-back-symbol)
+   '("c" . meow-change)
+   '("u" . meow-prev)
+   '("U" . meow-prev-expand)
+   '("f" . meow-find)
+   '("F" . meow-find-expand)
+   '("g" . meow-cancel-selection)
+   '("G" . meow-grab)
+   '("n" . meow-left)
+   '("N" . meow-left-expand)
+   '("i" . meow-right)
+   '("I" . meow-right-expand)
+   '("j" . meow-join)
+   '("k" . meow-kill)
+   '("l" . meow-line)
+   '("L" . meow-goto-line)
+   '("m" . meow-mark-word)
+   '("M" . meow-mark-symbol)
+   '("e" . meow-next)
+   '("E" . meow-next-expand)
+   '("o" . meow-block)
+   '("O" . meow-to-block)
+   '("p" . meow-yank)
+   '("q" . meow-quit)
+   '("r" . meow-replace-with-clipboard)
+   '("R" . meow-replace)
+   '("C-r" . meow-swap-grab)
+   '("s" . meow-insert)
+   '("S" . meow-open-above)
+   '("t" . meow-till)
+   '("T" . meow-till-expand)
+   '("h" . meow-undo)
+   '("H" . meow-undo-in-selection)
+   '("C-h" . undo-tree-redo)
+   '("v" . meow-search)
+   '("w" . meow-next-word)
+   '("W" . meow-next-symbol)
+   '("d" . meow-delete-my)
+   ;; '("X" . meow-backward-delete)
+   '("y" . meow-save)
+   '("Z" . meow-pop-selection)
+   '("<escape>" . ignore)
+   '("C-k" . yank-from-kill-ring)
+   '("K" . yank)
+
+   '("я" . meow-reverse)
+   '("х" . meow-beginning-of-thing)
+   '("ё" . meow-end-of-thing)
+   '("б" . meow-visit)
+   '("ф" . meow-append)
+   '("Ф" . meow-open-below)
+   '("е" . meow-back-word)
+   '("Е" . meow-back-symbol)
+   '("ч" . meow-change)
+   '("ш" . meow-prev)
+   '("Ш" . meow-prev-expand)
+   '("у" . meow-find)
+   '("У" . meow-find-expand)
+   '("з" . meow-cancel-selection)
+   '("З" . meow-grab)
+   '("о" . meow-left)
+   '("О" . meow-left-expand)
+   '("д" . meow-right)
+   '("Д" . meow-right-expand)
+   '("н" . meow-join)
+   '("э" . meow-kill)
+   '("г" . meow-line)
+   '("Г" . meow-goto-line)
+   '("ю" . meow-mark-word)
+   '("Ю" . meow-mark-symbol)
+   '("л" . meow-next)
+   '("Л" . meow-next-expand)
+   '("ж" . meow-block)
+   '("Ж" . meow-to-block)
+   '("к" . meow-yank)
+   '("й" . meow-quit)
+   '("r" . meow-replace-with-clipboard)
+   '("R" . meow-replace)
+   '("C-к" . meow-swap-grab)
+   '("в" . meow-insert)
+   '("В" . meow-open-above)
+   '("а" . meow-till)
+   '("А" . meow-till-expand)
+   '("ь" . meow-undo)
+   '("ъ" . meow-undo-in-selection)
+   '("C-ь" . undo-tree-redo)
+   '("м" . meow-search)
+   '("ц" . meow-next-word)
+   '("Ц" . meow-next-symbol)
+   '("с" . meow-delete-my)
+   ;; '("Я" . meow-backward-delete)
+   '("щ" . meow-save)
+   '("Б" . meow-pop-selection)
+   '("Ы" . repeat)
+   '("C-л" . yank-from-kill-ring)
+   '("Э" . yank)
+))
+
+(setq meow--kbd-kill-ring-save "C-c")
+(require 'meow)
+(meow-setup)
+(meow-global-mode 1)
+(use-package bind-key
+  :config
+   (bind-key* "C-v" 'clipboard-paste)
+   (bind-key* "C-c" 'clipboard-copy)
+   (bind-key* "C-x" 'kill-region)
+   (bind-key* "M-s-C-E" 'exchange-point-and-mark)
+   (bind-key* "M-s-C-K" 'kill-line)
+   (bind-key* "M-s-C-L" 'delete-line)
+   (bind-key* "M-s-C-R" 'delete-region)
+)
+
+
+(setq meow--kbd-yank                    "C-v"
+      meow--kbd-kill-ring-save          "C-c"
+      meow--kbd-kill-region             "C-x"
+      meow--kbd-exchange-point-and-mark "M-s-C-E"
+      meow--kbd-kill-line               "M-s-C-K"
+      meow--kbd-delete-line             "M-s-C-L"
+      meow--kbd-delete-region           "M-s-C-R"
+)
+; (unbind-key "M-l")
+; (unbind-key "M-l")
+;
+  ; '("M-l t" . org-babel-tangle)
+; )
+#+end_src
+** Keyboard shortcuts
+*** Buffer management
+#+begin_src emacs-lisp :tangle yes
+(global-unset-key (kbd "M-b"))
+ 
+(meow-normal-define-key
+  '("M-b f"   . find-file)
+  '("M-b k"   . kill-current-buffer)
+  '("M-b b"   . switch-to-buffer)
+  '("M-b M-b" . (lambda () (interactive) (switch-to-buffer nil)))
+  '("M-b B"   . bookmark-jump)
+  '("M-b s"   . save-buffer)
+  '("M-b i"   . ibuffer)
+)
+(meow-motion-overwrite-define-key
+  '("M-b f"   . find-file)
+  '("M-b k"   . kill-current-buffer)
+  '("M-b b"   . switch-to-buffer)
+  '("M-b M-b" . (lambda () (interactive) (switch-to-buffer nil)))
+  '("M-b B"   . bookmark-jump)
+  '("M-b s"   . save-buffer)
+)
+#+end_src
+*** Window management
+#+begin_src emacs-lisp :tangle yes
+(global-unset-key (kbd "M-w"))
+(meow-normal-define-key
+  '("M-w M-w"   . other-window)
+;;  '("M-w u"   . scroll-other-window)
+;;  '("M-w n"   . kill-this-buffer)
+;;  '("M-w e"   . scroll-other-window-down)
+;;   '("M-w i" . (lambda () (interactive) (switch-to-buffer nil)))
+  '("M-w k"   . kill-buffer-and-window)
+  '("M-w q"   . delete-window)
+  '("M-w v"   . split-window-right)
+  '("M-w h"   . split-window-below)
+  '("M-w o"   . delete-other-windows)
+)
+
+(meow-motion-overwrite-define-key
+  '("M-w M-w"   . other-window)
+;;  '("M-w u"   . scroll-other-window)
+;;  '("M-w n"   . kill-this-buffer)
+;;  '("M-w e"   . scroll-other-window-down)
+;;   '("M-w i" . (lambda () (interactive) (switch-to-buffer nil)))
+  '("M-w k"   . kill-buffer-and-window)
+  '("M-w q"   . delete-window)
+  '("M-w v"   . split-window-right)
+  '("M-w h"   . split-window-below)
+  '("M-w o"   . delete-other-windows)
+)
+#+end_src
+*** LSP
+#+begin_src emacs-lisp :tangle yes
+(global-unset-key (kbd "M-l"))
+(meow-normal-define-key
+  '("M-l d"   . xref-find-definitions)
+  '("M-l r"   . eglot-rename)
+)
+
+#+end_src
+*** Other
+#+begin_src emacs-lisp :tangle yes
+(global-unset-key (kbd "M-c"))
+(meow-normal-define-key
+  '("M-c c"   . comment-or-uncomment-region)
+)
+
+(global-unset-key (kbd "M-m"))
+#+end_src
+** Fixes
+*** Misc
+#+begin_src emacs-lisp :tangle yes
+
+  (electric-indent-mode 1)
+  (setq org-edit-src-content-indentation 0)
+  (global-set-key (kbd "<escape>")      'keyboard-escape-quit)
+  (put 'downcase-word 'disabled t)
+  (setq split-width-threshold 10)
+
+  ;; not copy on delete
+  (add-hook 'after-init-hook '(lambda () 
+;;    (defun bb/evil-delete (orig-fn beg end &optional type _ &rest args)
+;;      (apply orig-fn beg end type ?_ args))
+;;    (advice-add 'evil-delete :around 'bb/evil-delete)  ;; not ended
+  ))
+  (add-hook 'image-mode-hook '(lambda ()
+    (undo-tree-mode -1)
+  ))
+
+(setq-default
+   indent-tabs-mode nil
+)
+
+(setq scroll-error-top-bottom          t
+      scroll-conservatively            50
+      scroll-margin                    10
+      scroll-step                      1
+      scroll-preserve-screen-position  t
+)
+#+end_src
+*** Clipboard
+#+begin_src emacs-lisp :tangle yes
+;; credit: yorickvP on Github, modified by MolinStepan
+(setq wl-copy-process nil)
+(defun wl-copy (text)
+  (kill-new (wl-paste)) ;; TODO add OS-level clipboard history
+  (setq wl-copy-process (make-process :name "wl-copy"
+                                      :buffer nil
+                                      :command '("wl-copy" "-f")
+                                      :connection-type 'pipe
+                                      :noquery t))
+  (process-send-string wl-copy-process text)
+  (process-send-eof wl-copy-process))
+
+(setq interprogram-cut-function nil)
+(setq interprogram-paste-function nil)
+
+(setq interprogram-cut-function-custom 'wl-copy)
+(setq interprogram-paste-function-custom 'wl-paste)
+
+
+(defun wl-paste ()
+  (shell-command-to-string "wl-paste -n"))
+
+(defun clipboard-paste ()
+  (interactive)
+  (insert (funcall interprogram-paste-function-custom)))
+
+
+(defun clipboard-copy (beg end &optional region)
+    ;; Pass mark first, then point, because the order matters when
+  ;; calling `kill-append'.
+  (interactive (list (mark) (point) 'region))
+  (clipboard-copy-inner beg end region)
+  ;; This use of called-interactively-p is correct because the code it
+  ;; controls just gives the user visual feedback.
+  (if (called-interactively-p 'interactive)
+      (indicate-copied-region)))
+
+
+(defun clipboard-copy-inner (beg end &optional region)
+  (interactive (list (mark) (point) 'region))
+  (let ((str (if region
+                 (funcall region-extract-function nil)
+               (filter-buffer-substring beg end))))
+    (funcall interprogram-cut-function-custom str))
+  (setq deactivate-mark t)
+  nil)
+
+(defun meow-replace-with-clipboard ()
+  "Replace current selection with yank.
+
+This command supports `meow-selection-command-fallback'."
+  (interactive)
+  (let ((select-enable-clipboard meow-use-clipboard))
+     (when (meow--allow-modify-p)
+       (when-let* ((s (string-trim-right (funcall interprogram-paste-function-custom) "\n")))
+         (meow--delete-region (region-beginning) (region-end))
+         (set-marker meow--replace-start-marker (point))
+         (meow--insert s)))))
+
+
+(setq select-enable-clipboard nil)
+
+#+end_src
